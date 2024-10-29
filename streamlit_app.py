@@ -150,6 +150,12 @@ except Exception as e:
     st.error("Failed to load quiz statistics.")
     st.error(f"Error: {str(e)}")
 
-# Footer
+# Footer with credits
 st.markdown("---")
-st.markdown("© 2023 World's Fastest Quiz App. All rights reserved.")
+st.markdown("""
+<div style='text-align: center'>
+    <p>© 2024 World's Fastest Quiz App. All rights reserved.</p>
+    <p>Powered by <a href='https://educhain.in' target='_blank'>Educhain</a> 🎓🔗</p>
+    <p>Made with ❤️ using <a href='https://github.com/satvik314/educhain.git' target='_blank'>Educhain</a> - A Python package for generating educational content using Generative AI</p>
+</div>
+""", unsafe_allow_html=True)
