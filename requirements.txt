@@ -1,0 +1,5 @@
+streamlit
+supabase
+langchain-openai
+python-dotenv
+educhain
