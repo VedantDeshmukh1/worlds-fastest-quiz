@@ -91,7 +91,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🙏 Acknowledgments
 
-- [Educhain](https://educhain.com) for the powerful question generation engine
+- [Educhain](https://educhain.in
+  ) for the powerful question generation engine
 - [Cerebras](https://cerebras.ai) for the LLaMA 3.1 70B model access
 - [Streamlit](https://streamlit.io) for the amazing web framework
 - [Supabase](https://supabase.com) for the reliable database solution
