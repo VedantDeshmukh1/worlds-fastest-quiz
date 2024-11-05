@@ -40,6 +40,13 @@ topic = st.sidebar.text_input("Quiz Topic", value="Psychology")
 num_questions = st.sidebar.number_input("Number of Questions", min_value=1, max_value=50, value=10, step=1)
 custom_instructions = st.sidebar.text_area("Custom Instructions", value="Classical Conditioning")
 
+# Add this near the top with other imports
+if 'quiz_generated' not in st.session_state:
+    st.session_state.quiz_generated = False
+    st.session_state.questions = None
+    st.session_state.user_answers = {}
+    st.session_state.submitted = False
+
 # Button to Generate Quiz
 if st.sidebar.button("Generate Quiz"):
     try:
@@ -52,8 +59,8 @@ if st.sidebar.button("Generate Quiz"):
             # Generate Questions
             ques = client.qna_engine.generate_questions(
                 topic=topic,
-                num_questions=min(int(num_questions), 8),  # Limit to 8 questions maximum
-                custom_instructions=f"{custom_instructions}. Generate exactly {num_questions} questions.",  # Explicitly request the number of questions
+                num_questions=min(int(num_questions), 8),
+                custom_instructions=f"{custom_instructions}. Generate exactly {num_questions} questions.",
             )
             
             # Verify questions are generated and match requested count
@@ -61,73 +68,110 @@ if st.sidebar.button("Generate Quiz"):
                 st.error(f"Failed to generate {num_questions} questions. Please try again.")
                 st.stop()
             
-            # Display Questions
-            st.header("Your Quiz")
-            for idx, question in enumerate(ques.questions, 1):
-                st.markdown(f"**Q{idx}: {question.question}**")
-                for option in question.options:
-                    st.markdown(f"- {option}")
-                st.markdown(f"**Answer:** {question.answer}\n")
+            # Store in session state
+            st.session_state.questions = ques.questions
+            st.session_state.quiz_generated = True
             
             # Calculate final latency
             end_time = time.time()
             latency_ms = int((end_time - start_time) * 1000)
-        
-        # Update timer one last time with final time
-        timer_placeholder.text(f"⏱️ Final Generation Time: {latency_ms/1000:.2f} seconds")
-        
-        # Display Latency
-        st.success(f"Quiz generated in {latency_ms} ms!")
-        
-        # Save to Supabase with error handling
-        with st.spinner("Saving your quiz to the database..."):
-            try:
-                # Insert into quizzes table
-                quiz_data = {
-                    "topic": topic,
-                    "num_questions": num_questions,
-                    "custom_instructions": custom_instructions,
-                    "latency_ms": latency_ms,
-                    "created_at": datetime.now().isoformat()  # Add explicit timestamp
-                }
-                
-                # Retry logic for database connection
-                max_retries = 3
-                retry_count = 0
-                while retry_count < max_retries:
-                    try:
-                        quiz_response = supabase.table("quizzes").insert(quiz_data).execute()
-                        quiz_id = quiz_response.data[0]["id"]
-                        
-                        # Prepare questions data
-                        questions_data = []
-                        for question in ques.questions:
-                            q = {
-                                "quiz_id": quiz_id,
-                                "question_text": question.question,
-                                "options": json.dumps(question.options),
-                                "answer": question.answer
-                            }
-                            questions_data.append(q)
-                        
-                        # Insert into questions table
-                        supabase.table("questions").insert(questions_data).execute()
-                        st.success("Your quiz has been saved successfully!")
-                        break
-                    except Exception as e:
-                        retry_count += 1
-                        if retry_count == max_retries:
-                            st.error(f"Failed to save to database after {max_retries} attempts. Your quiz was generated but couldn't be saved.")
-                            st.error(f"Error: {str(e)}")
-                        time.sleep(1)  # Wait 1 second before retrying
             
-            except Exception as e:
-                st.error("Failed to save quiz to database.")
-                st.error(f"Error: {str(e)}")
-                
+            # Save to Supabase with error handling
+            with st.spinner("Saving your quiz to the database..."):
+                try:
+                    # Insert into quizzes table
+                    quiz_data = {
+                        "topic": topic,
+                        "num_questions": num_questions,
+                        "custom_instructions": custom_instructions,
+                        "latency_ms": latency_ms,
+                        "created_at": datetime.now().isoformat()
+                    }
+                    
+                    # Retry logic for database connection
+                    max_retries = 3
+                    for attempt in range(max_retries):
+                        try:
+                            supabase.table("quizzes").insert(quiz_data).execute()
+                            break
+                        except Exception as e:
+                            if attempt == max_retries - 1:  # Last attempt
+                                st.warning("Failed to save to database after 3 attempts. Your quiz was generated but couldn't be saved.")
+                                st.error(f"Error: {str(e)}")
+                            time.sleep(1)  # Wait before retry
+                            
+                except Exception as e:
+                    st.warning("Failed to save quiz to database. Your quiz was generated but couldn't be saved.")
+                    st.error(f"Error: {str(e)}")
+            
+            # Update timer and show latency
+            timer_placeholder.text(f"⏱️ Final Generation Time: {latency_ms/1000:.2f} seconds")
+            st.success(f"Quiz generated in {latency_ms} ms!")
+            
     except Exception as e:
         st.error("Failed to generate quiz.")
         st.error(f"Error: {str(e)}")
+
+# Display quiz if it's generated (SINGLE INSTANCE)
+if st.session_state.quiz_generated:
+    st.header("Your Quiz")
+    
+    for idx, question in enumerate(st.session_state.questions, 1):
+        st.markdown(f"**Q{idx}: {question.question}**")
+        options = question.options
+        answer_key = f"q_{idx}"
+        
+        # Initialize answer in session state if not present
+        if answer_key not in st.session_state.user_answers:
+            st.session_state.user_answers[answer_key] = None
+            
+        # Display radio buttons with an initial empty option
+        st.session_state.user_answers[answer_key] = st.radio(
+            f"Select your answer for question {idx}:",
+            ["Select an option..."] + options,  # Add initial empty option
+            key=f"quiz_answer_{idx}"
+        )
+        st.markdown("<br>", unsafe_allow_html=True)
+    
+    # Submit button
+    if st.button("Submit Quiz", key="submit_button"):
+        # Check if all questions are answered
+        unanswered = [idx for idx, ans in st.session_state.user_answers.items() 
+                     if ans == "Select an option..."]
+        
+        if unanswered:
+            st.error(f"Please answer all questions before submitting! Unanswered questions: {', '.join(str(q[2]) for q in unanswered)}")
+        else:
+            st.session_state.submitted = True
+    
+    # Show results after submission
+    if st.session_state.submitted:
+        st.header("Quiz Results")
+        correct_count = 0
+        
+        for idx, question in enumerate(st.session_state.questions, 1):
+            st.markdown(f"**Q{idx}: {question.question}**")
+            user_answer = st.session_state.user_answers[f"q_{idx}"]
+            correct_answer = question.answer
+            is_correct = user_answer == correct_answer
+            
+            if is_correct:
+                correct_count += 1
+                st.markdown(f"✅ Your answer: **{user_answer}** (Correct!)")
+            else:
+                st.markdown(f"❌ Your answer: **{user_answer}**")
+                st.markdown(f"📝 Correct answer: **{correct_answer}**")
+            st.markdown("---")
+        
+        score_percentage = (correct_count / len(st.session_state.questions)) * 100
+        st.success(f"Final Score: {correct_count}/{len(st.session_state.questions)} ({score_percentage:.1f}%)")
+
+        if st.button("Take Another Quiz", key="retry_button"):
+            st.session_state.quiz_generated = False
+            st.session_state.questions = None
+            st.session_state.user_answers = {}
+            st.session_state.submitted = False
+            st.experimental_rerun()
 
 # Replace Previous Quizzes section with Metrics
 st.header("📊 Quiz Generation Stats")
